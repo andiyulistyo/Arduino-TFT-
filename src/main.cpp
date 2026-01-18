@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <TFT_eSPI.h>
+#include <Calibration.h>
 
 // Definisi Pin Koneksi
 // TFT Display Pins
@@ -15,6 +16,7 @@
 #define TOUCH_CS 5 // Touch Chip Select
 
 TFT_eSPI tft = TFT_eSPI();
+Calibration calibration(&tft);
 
 // Screen states
 enum Screen
@@ -71,12 +73,47 @@ void drawScreen1()
 
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
-  tft.setCursor(20, 150);
+  tft.setCursor(20, 180);
   tft.println("Halaman Pertama");
 
-  // Button untuk ke Screen 2 - posisi disesuaikan dengan touch
-  Button btn = {60, 50, 200, 60, "Ke Screen 2", TFT_BLUE};
-  drawButton(btn);
+  // Button untuk ke Screen 2
+  Button btn1 = {20, 50, 130, 50, "Screen 2", TFT_BLUE};
+  drawButton(btn1);
+
+  // Button untuk Kalibrasi
+  Button btn2 = {170, 50, 130, 50, "Kalibrasi", TFT_RED};
+  drawButton(btn2);
+
+  // Button untuk Reset Kalibrasi
+  Button btn3 = {95, 110, 130, 50, "Reset Cal", TFT_ORANGE};
+  drawButton(btn3);
+
+  // Info status kalibrasi dan spesifikasi layar
+  tft.setTextSize(1);
+  if (calibration.isCalibrated())
+  {
+    tft.setTextColor(TFT_GREEN);
+    tft.setCursor(20, 205);
+    tft.print("Status: Terkalibrasi");
+    
+    // Info resolusi dan ukuran
+    tft.setTextColor(TFT_YELLOW);
+    tft.setCursor(20, 220);
+    tft.print("Layar: ");
+    tft.print(calibration.getScreenInfo());
+  }
+  else
+  {
+    tft.setTextColor(TFT_YELLOW);
+    tft.setCursor(20, 205);
+    tft.print("Status: Belum dikalibrasi");
+    
+    // Info resolusi saja
+    tft.setTextColor(TFT_DARKGREY);
+    tft.setCursor(20, 220);
+    tft.print("Layar: ");
+    tft.print(calibration.getResolution());
+  }
 }
 
 // Gambar Screen 2
@@ -126,17 +163,21 @@ void drawScreen3()
 void setup()
 {
   Serial.begin(115200);
+  Serial.println("=");
+  Serial.println("═══════════════════════════════════");
   Serial.println("ESP32 TFT Touch Screen Starting...");
+  Serial.println("═══════════════════════════════════");
 
   tft.init();
   tft.setRotation(1); // Landscape mode
-  
-  // Hapus kalibrasi dulu untuk testing
-  // uint16_t calData[5] = {275, 3620, 264, 3532, 1};
-  // tft.setTouch(calData);
+
+  // Load kalibrasi dari flash atau lakukan kalibrasi awal
+  calibration.initialize();
 
   Serial.println("Screen initialized");
-  Serial.println("Touch the screen to see raw coordinates");
+  Serial.println("Touch the screen to interact");
+  Serial.println("═══════════════════════════════════\n");
+  
   drawScreen1();
 }
 
@@ -164,9 +205,6 @@ void loop()
   uint16_t x, y;
   if (tft.getTouch(&x, &y))
   {
-    // Inverse koordinat Y karena terbalik (landscape mode 320x240)
-    y = 240 - y;
-    
     Serial.print("Touch detected: x=");
     Serial.print(x);
     Serial.print(", y=");
@@ -177,30 +215,44 @@ void loop()
     // Tampilkan titik sentuh di layar untuk debugging
     tft.fillCircle(x, y, 3, TFT_RED);
     
-    // Screen 1 - Button ke Screen 2
+    // Screen 1 - 3 Buttons (Screen 2, Kalibrasi, Reset Cal)
     if (currentScreen == SCREEN_1)
     {
-      Button btn = {60, 50, 200, 60, "", TFT_BLUE};
-      Serial.print("Checking button area: x[");
-      Serial.print(btn.x);
-      Serial.print("-");
-      Serial.print(btn.x + btn.w);
-      Serial.print("], y[");
-      Serial.print(btn.y);
-      Serial.print("-");
-      Serial.print(btn.y + btn.h);
-      Serial.println("]");
-      
-      if (isButtonPressed(btn, x, y))
+      Button btn1 = {20, 50, 130, 50, "", TFT_BLUE};      // Screen 2
+      Button btn2 = {170, 50, 130, 50, "", TFT_RED};      // Kalibrasi
+      Button btn3 = {95, 110, 130, 50, "", TFT_ORANGE};   // Reset Cal
+
+      if (isButtonPressed(btn1, x, y))
       {
-        Serial.println(">>> Button pressed! Pindah ke Screen 2");
+        Serial.println(">>> Pindah ke Screen 2");
         currentScreen = SCREEN_2;
         screenChanged = true;
         delay(300); // Debounce
       }
-      else
+      else if (isButtonPressed(btn2, x, y))
       {
-        Serial.println("Touch outside button area");
+        Serial.println(">>> Memulai kalibrasi...");
+        calibration.performCalibration();
+        screenChanged = true;
+        delay(300);
+      }
+      else if (isButtonPressed(btn3, x, y))
+      {
+        Serial.println(">>> Menghapus kalibrasi tersimpan...");
+        calibration.clearCalibration();
+        
+        // Tampilkan konfirmasi
+        tft.fillRect(50, 90, 220, 60, TFT_BLACK);
+        tft.drawRect(50, 90, 220, 60, TFT_ORANGE);
+        tft.setTextColor(TFT_ORANGE);
+        tft.setTextSize(2);
+        tft.setCursor(70, 105);
+        tft.println("KALIBRASI");
+        tft.setCursor(80, 125);
+        tft.println("DIHAPUS!");
+        delay(1500);
+        
+        screenChanged = true;
       }
     }
     // Screen 2 - 2 Buttons
